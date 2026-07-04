@@ -35,10 +35,30 @@ public class MessageEmojiLikeNoticeEvent extends NoticeEvent {
     private Long operatorId;
 
     /**
+     * 操作者ID
+     */
+    @JsonProperty("user_id")
+    private Long userId;
+
+    /**
      * 表情详情
      */
     @JsonProperty("likes")
     private List<Like> likes;
+
+    /**
+     * 是否添加
+     */
+    @JsonProperty("is_add")
+    private boolean add;
+
+    public Long getOperatorId() {
+        return operatorId != null ? operatorId : userId;
+    }
+
+    public Long getUserId() {
+        return userId != null ? userId : operatorId;
+    }
 
     @Data
     public static class Like {

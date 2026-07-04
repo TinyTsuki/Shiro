@@ -157,7 +157,7 @@ public class ActionHandler {
 
         JsonObjectWrapper payload = generatePayload(action, params);
         String e = payload.get("echo").toString();
-        PayloadSender sender = new PayloadSender(session, wsProp.getTimeout());
+        PayloadSender sender = new PayloadSender(session, wsProp.getTimeout(action));
         callback.put(e, sender);
         try {
             result = sender.send(payload);
