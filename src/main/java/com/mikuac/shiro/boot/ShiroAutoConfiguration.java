@@ -3,6 +3,7 @@ package com.mikuac.shiro.boot;
 import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.Logger;
 import com.mikuac.shiro.adapter.WebSocketClientHandler;
+import com.mikuac.shiro.adapter.ManagedWebSocketClient;
 import com.mikuac.shiro.adapter.WebSocketServerHandler;
 import com.mikuac.shiro.constant.Connection;
 import com.mikuac.shiro.properties.ShiroProperties;
@@ -11,6 +12,7 @@ import com.mikuac.shiro.properties.WebSocketProperties;
 import com.mikuac.shiro.properties.WebSocketServerProperties;
 import com.mikuac.shiro.task.ScheduledTask;
 import jakarta.annotation.Nonnull;
+import jakarta.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -23,8 +25,6 @@ import org.springframework.lang.Nullable;
 import org.springframework.scheduling.annotation.EnableAsync;
 import org.springframework.stereotype.Component;
 import org.springframework.web.socket.WebSocketHandler;
-import org.springframework.web.socket.WebSocketHttpHeaders;
-import org.springframework.web.socket.client.WebSocketConnectionManager;
 import org.springframework.web.socket.client.standard.StandardWebSocketClient;
 import org.springframework.web.socket.config.annotation.EnableWebSocket;
 import org.springframework.web.socket.config.annotation.WebSocketConfigurer;
@@ -32,7 +32,9 @@ import org.springframework.web.socket.config.annotation.WebSocketHandlerRegistry
 import org.springframework.web.socket.server.HandshakeInterceptor;
 
 import java.util.Map;
-import java.util.Objects;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.ScheduledFuture;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 
@@ -57,6 +59,8 @@ public class ShiroAutoConfiguration implements WebSocketConfigurer, HandshakeInt
     private final ShiroProperties shiroProperties;
     private final WebSocketServerHandler webSocketServerHandler;
     private final WebSocketClientHandler webSocketClientHandler;
+    private final List<ManagedWebSocketClient> clients = new ArrayList<>();
+    private final List<ScheduledFuture<?>> reconnectTasks = new ArrayList<>();
 
     @Autowired
     public ShiroAutoConfiguration(
@@ -105,21 +109,20 @@ public class ShiroAutoConfiguration implements WebSocketConfigurer, HandshakeInt
         }
     }
 
-    private void createWebsocketClient() {
-        StandardWebSocketClient client = new StandardWebSocketClient();
-        WebSocketHttpHeaders headers = new WebSocketHttpHeaders();
-        if (!Objects.equals(wsProp.getAccessToken(), "")) {
-            headers.add("Authorization", wsProp.getAccessToken());
+    private synchronized void createWebsocketClient() {
+        if (!clients.isEmpty()) return;
+        for (var endpoint : wsClientProp.resolveEndpoints(wsProp)) {
+            var client = new ManagedWebSocketClient(new StandardWebSocketClient(), webSocketClientHandler, endpoint);
+            clients.add(client);
+            reconnectTasks.add(scheduledTask.executor().scheduleWithFixedDelay(client::connectIfNeeded,
+                    0, endpoint.reconnectInterval(), TimeUnit.SECONDS));
         }
-        WebSocketConnectionManager manager = new WebSocketConnectionManager(client, webSocketClientHandler, wsClientProp.getUrl());
-        manager.setHeaders(headers);
-        manager.setAutoStartup(true);
+    }
 
-        scheduledTask.executor().scheduleWithFixedDelay(() -> {
-            if (!manager.isConnected()) {
-                manager.startInternal();
-            }
-        }, 0, wsClientProp.getReconnectInterval(), TimeUnit.SECONDS);
+    @PreDestroy
+    public synchronized void closeClients() {
+        reconnectTasks.forEach(task -> task.cancel(false));
+        clients.forEach(ManagedWebSocketClient::close);
     }
 
     @Override

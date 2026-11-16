@@ -92,13 +92,12 @@ public class WebSocketServerHandler extends TextWebSocketHandler {
             var sessionContext = session.getAttributes();
             sessionContext.put(Connection.SESSION_STATUS_KEY, SessionStatusEnum.ONLINE);
             if (shiroProps.getWaitBotConnect() <= 0) {
-                if (botContainer.robots.containsKey(xSelfId)) {
+                Bot registered = botContainer.robots.computeIfAbsent(xSelfId,
+                        id -> ConnectionUtils.handleFirstConnect(id, session, botFactory, coreEvent, shiroTaskExecutor));
+                if (registered.getSession() != session) {
                     log.info("Bot {} already connected with another instance", xSelfId);
                     sessionContext.clear();
                     session.close();
-                } else {
-                    Bot bot = ConnectionUtils.handleFirstConnect(xSelfId, session, botFactory, coreEvent, shiroTaskExecutor);
-                    botContainer.robots.put(xSelfId, bot);
                 }
                 return;
             }
@@ -121,15 +120,14 @@ public class WebSocketServerHandler extends TextWebSocketHandler {
         PayloadSender.cleanupSessionLock(session.getId());
 
         long xSelfId = ConnectionUtils.parseSelfId(session);
-        if (xSelfId == 0L || !botContainer.robots.containsKey(xSelfId)) {
+        if (xSelfId == 0L || !botContainer.ownsSession(xSelfId, session)) {
             return;
         }
         var sessionContext = session.getAttributes();
 
         if (shiroProps.getWaitBotConnect() <= 0) {
+            if (botContainer.removeSession(xSelfId, session) == null) return;
             sessionContext.clear();
-            // noinspection resource
-            botContainer.robots.remove(xSelfId);
             log.warn("Account {} disconnected", xSelfId);
             CompletableFuture.runAsync(() -> coreEvent.offline(xSelfId), shiroTaskExecutor);
             return;
@@ -137,9 +135,7 @@ public class WebSocketServerHandler extends TextWebSocketHandler {
         // after the session is disconnected, postpone deletion instead of immediate removal
         // if not reconnected within a certain timeframe, execute the deletion scheduled task
         ScheduledFuture<?> removeSelfFuture = scheduledTask.executor().schedule(() -> {
-            if (botContainer.robots.containsKey(xSelfId)) {
-                // noinspection resource
-                botContainer.robots.remove(xSelfId);
+            if (botContainer.removeSession(xSelfId, session) != null) {
                 log.warn("Account {} disconnected", xSelfId);
                 CompletableFuture.runAsync(() -> coreEvent.offline(xSelfId), shiroTaskExecutor);
             }
@@ -153,15 +149,16 @@ public class WebSocketServerHandler extends TextWebSocketHandler {
     protected void handleTextMessage(@NonNull WebSocketSession session, @NonNull TextMessage message) {
         long xSelfId = ConnectionUtils.parseSelfId(session);
         JsonObjectWrapper result = JsonObjectWrapper.parseObject(message.getPayload());
+        if (!botContainer.ownsSession(xSelfId, session) || !ConnectionUtils.matchesSelfId(session, result)) return;
         log.debug("[Event] {}", CommonUtils.debugMsgDeleteBase64Content(result.toJSONString()));
         // if resp contains echo field, this resp is action resp, else event resp.
         if (result.containsKey(Connection.API_RESULT_KEY)) {
             if (Connection.FAILED_STATUS.equals(result.get(Connection.RESULT_STATUS_KEY))) {
                 log.error("API call failed [{}]: {}", xSelfId, result.get("wording"));
             }
-            actionHandler.onReceiveActionResp(result);
+            actionHandler.onReceiveActionResp(session, result);
         } else {
-            shiroAsyncTask.execHandlerMsg(eventHandler, xSelfId, result);
+            shiroAsyncTask.execHandlerMsg(eventHandler, xSelfId, session, result);
         }
     }
 

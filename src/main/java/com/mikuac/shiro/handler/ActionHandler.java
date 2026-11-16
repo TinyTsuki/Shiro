@@ -99,11 +99,25 @@ public class ActionHandler {
      *
      * @param resp 回调结果
      */
+    @Deprecated
     public void onReceiveActionResp(JsonObjectWrapper resp) {
         String e = resp.get("echo").toString();
         PayloadSender sender = callback.remove(e);
         if (sender != null) {
             // 唤醒挂起的线程
+            sender.onCallback(resp);
+        }
+    }
+
+    /**
+     * Matches both the request echo and the transport that dispatched it.
+     */
+    public void onReceiveActionResp(WebSocketSession session, JsonObjectWrapper resp) {
+        Object echoValue = resp.get("echo");
+        if (echoValue == null) return;
+        String key = echoValue.toString();
+        PayloadSender sender = callback.get(key);
+        if (sender != null && sender.belongsTo(session) && callback.remove(key, sender)) {
             sender.onCallback(resp);
         }
     }

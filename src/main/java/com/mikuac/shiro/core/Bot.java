@@ -68,6 +68,12 @@ public class Bot implements OneBot, GoCQHTTPExtend, GensokyoExtend, LagrangeExte
         return annotationMethodContainer.getAnnotationHandler();
     }
 
+    private void requireEventAccount(AnyMessageEvent event) {
+        if (event.getSelfId() != null && event.getSelfId() > 0 && event.getSelfId() != selfId) {
+            throw new IllegalArgumentException("Message event belongs to a different bot");
+        }
+    }
+
     @Override
     public void close() throws IOException {
         if (session.isOpen()) {
@@ -95,6 +101,7 @@ public class Bot implements OneBot, GoCQHTTPExtend, GensokyoExtend, LagrangeExte
      */
     @Override
     public ActionData<MsgId> sendMsg(AnyMessageEvent event, String msg, boolean autoEscape) {
+        requireEventAccount(event);
         if (ActionParams.PRIVATE.equals(event.getMessageType())) {
             return sendPrivateMsg(event.getUserId(), msg, autoEscape);
         }
@@ -114,6 +121,7 @@ public class Bot implements OneBot, GoCQHTTPExtend, GensokyoExtend, LagrangeExte
      */
     @Override
     public ActionData<MsgId> sendMsg(AnyMessageEvent event, List<ArrayMsg> msg, boolean autoEscape) {
+        requireEventAccount(event);
         if (ActionParams.PRIVATE.equals(event.getMessageType())) {
             return sendPrivateMsg(event.getUserId(), msg, autoEscape);
         }
@@ -1164,6 +1172,7 @@ public class Bot implements OneBot, GoCQHTTPExtend, GensokyoExtend, LagrangeExte
      */
     @Override
     public ActionData<MsgId> sendForwardMsg(AnyMessageEvent event, List<Map<String, Object>> msg) {
+        requireEventAccount(event);
         Map<String, Object> params = new HashMap<>();
         params.put(ActionParams.MESSAGES, msg);
         if (ActionParams.GROUP.equals(event.getMessageType())) {

@@ -87,4 +87,8 @@ public class PayloadSender {
     public void onCallback(JsonObjectWrapper resp) {
         responseFuture.complete(resp);
     }
+
+    public boolean belongsTo(WebSocketSession source) {
+        return session == source;
+    }
 }

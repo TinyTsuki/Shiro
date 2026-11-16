@@ -21,6 +21,21 @@ import java.util.concurrent.TimeUnit;
 
 @Slf4j
 public class ConnectionUtils {
+    public static final String EXPECTED_SELF_ID = "shiro.expected-self-id";
+    public static final String IDENTITY_REJECTED = "shiro.identity-rejected";
+
+    public static boolean matchesSelfId(WebSocketSession session, JsonObjectWrapper payload) {
+        long actual = parseSelfId(session);
+        if (actual <= 0) return false;
+        Object expected = session.getAttributes().get(EXPECTED_SELF_ID);
+        Object reported = payload.get(Connection.SELF_ID);
+        try {
+            return (expected == null || Long.parseLong(expected.toString()) == actual)
+                    && (reported == null || Long.parseLong(reported.toString()) == actual);
+        } catch (NumberFormatException invalid) {
+            return false;
+        }
+    }
 
     private ConnectionUtils() {
     }
@@ -154,7 +169,6 @@ public class ConnectionUtils {
             return true;
         }
         String clientToken = getAuthorization(session);
-        log.debug("Access Token: {}", clientToken);
         if (clientToken == null || clientToken.isEmpty()) {
             return false;
         }

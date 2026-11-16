@@ -7,6 +7,7 @@ import com.mikuac.shiro.handler.EventHandler;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Component;
+import org.springframework.web.socket.WebSocketSession;
 
 /**
  * 异步任务
@@ -37,6 +38,12 @@ public class ShiroAsyncTask {
         if (bot != null) {
             event.handler(bot, resp);
         }
+    }
+
+    @Async("shiroTaskExecutor")
+    public void execHandlerMsg(EventHandler event, long selfId, WebSocketSession session, JsonObjectWrapper resp) {
+        Bot bot = botContainer.robots.get(selfId);
+        if (bot != null && bot.getSession() == session) event.handler(bot, resp);
     }
 
 }

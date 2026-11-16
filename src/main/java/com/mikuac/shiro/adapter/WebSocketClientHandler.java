@@ -20,7 +20,6 @@ import org.springframework.web.socket.WebSocketSession;
 import org.springframework.web.socket.handler.TextWebSocketHandler;
 
 import java.io.IOException;
-import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 
 /**
@@ -59,6 +58,7 @@ public class WebSocketClientHandler extends TextWebSocketHandler {
 
     @Override
     public void afterConnectionEstablished(@NonNull WebSocketSession session) {
+        if (!session.isOpen()) return;
         try {
             session.setTextMessageSizeLimit(wsProp.getMaxTextMessageBufferSize());
             session.setBinaryMessageSizeLimit(wsProp.getMaxBinaryMessageBufferSize());
@@ -67,12 +67,22 @@ public class WebSocketClientHandler extends TextWebSocketHandler {
             if (xSelfId == 0L) {
                 return;
             }
+            if (!ConnectionUtils.matchesSelfId(session, new JsonObjectWrapper())) {
+                rejectSession(session);
+                return;
+            }
             if (!coreEvent.session(session)) {
                 session.close();
                 return;
             }
-            Bot bot = botFactory.createBot(xSelfId, session);
-            botContainer.robots.put(xSelfId, bot);
+            Bot bot = botContainer.robots.compute(xSelfId, (id, current) -> {
+                if (current != null && current.getSession().isOpen()) return current;
+                return botFactory.createBot(id, session);
+            });
+            if (bot.getSession() != session) {
+                session.close(CloseStatus.POLICY_VIOLATION);
+                return;
+            }
             log.info("Account {} connected", xSelfId);
             CompletableFuture.runAsync(() -> coreEvent.online(bot), shiroTaskExecutor);
         } catch (IOException e) {
@@ -84,39 +94,53 @@ public class WebSocketClientHandler extends TextWebSocketHandler {
     public void afterConnectionClosed(@NonNull WebSocketSession session, @NonNull CloseStatus status) {
         PayloadSender.cleanupSessionLock(session.getId());
 
-        Map.Entry<Long, Bot> bot = botContainer.robots.entrySet().stream().findFirst().orElse(null);
+        long selfId = ConnectionUtils.parseSelfId(session);
+        Bot bot = botContainer.removeSession(selfId, session);
         if (bot != null) {
-            log.warn("Account {} disconnected", bot.getKey());
-            CompletableFuture.runAsync(() -> coreEvent.offline(bot.getKey()), shiroTaskExecutor);
-            botContainer.robots.clear();
+            log.warn("Account {} disconnected", selfId);
+            CompletableFuture.runAsync(() -> coreEvent.offline(selfId), shiroTaskExecutor);
         }
     }
 
     @Override
     @SuppressWarnings("Duplicates")
     protected void handleTextMessage(@NonNull WebSocketSession session, @NonNull TextMessage message) {
+        if (!session.isOpen()) return;
+        if (!JsonUtils.isValid(message.getPayload())) return;
+        JsonObjectWrapper result = JsonObjectWrapper.parseObject(message.getPayload());
         long xSelfId = ConnectionUtils.parseSelfId(session);
         if (xSelfId == 0L) {
-            boolean valid = JsonUtils.isValid(message.getPayload());
-            if (valid) {
-                String selfId = JsonObjectWrapper.parseObject(message.getPayload()).getOrDefault(Connection.SELF_ID, "").toString();
-                session.getAttributes().put(Connection.X_SELF_ID, selfId);
-                xSelfId = ConnectionUtils.parseSelfId(session);
+            session.getAttributes().put(Connection.X_SELF_ID, result.getOrDefault(Connection.SELF_ID, ""));
+            xSelfId = ConnectionUtils.parseSelfId(session);
+            if (xSelfId <= 0 || !ConnectionUtils.matchesSelfId(session, result)) {
+                rejectSession(session);
+                return;
             }
-            if (!botContainer.robots.containsKey(xSelfId)) {
-                afterConnectionEstablished(session);
-            }
+            afterConnectionEstablished(session);
         }
-        JsonObjectWrapper result = JsonObjectWrapper.parseObject(message.getPayload());
+        if (!botContainer.ownsSession(xSelfId, session)) return;
+        if (!ConnectionUtils.matchesSelfId(session, result)) {
+            rejectSession(session);
+            return;
+        }
         log.debug("[Event] {}", CommonUtils.debugMsgDeleteBase64Content(result.toJSONString()));
         // if resp contains echo field, this resp is action resp, else event resp.
         if (result.containsKey(Connection.API_RESULT_KEY)) {
             if (Connection.FAILED_STATUS.equals(result.get(Connection.RESULT_STATUS_KEY))) {
                 log.error("API call failed [{}]: {}", xSelfId, result.get("wording"));
             }
-            actionHandler.onReceiveActionResp(result);
+            actionHandler.onReceiveActionResp(session, result);
         } else {
-            shiroAsyncTask.execHandlerMsg(eventHandler, xSelfId, result);
+            shiroAsyncTask.execHandlerMsg(eventHandler, xSelfId, session, result);
+        }
+    }
+
+    private void rejectSession(WebSocketSession session) {
+        session.getAttributes().put(ConnectionUtils.IDENTITY_REJECTED, true);
+        try {
+            session.close(CloseStatus.POLICY_VIOLATION);
+        } catch (IOException failure) {
+            log.warn("Failed to close mismatched client session");
         }
     }
 
