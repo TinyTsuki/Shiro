@@ -9,8 +9,11 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Pattern;
 
 public class MessageConverser {
+
+    private static final Pattern SEGMENT_NAME = Pattern.compile("[A-Za-z][A-Za-z0-9_-]*");
 
     private MessageConverser() {
     }
@@ -101,7 +104,7 @@ public class MessageConverser {
                     i++; // 跳过结束括号
                     // 创建 ArrayMsg
                     ArrayMsg item = new ArrayMsg();
-                    item.setType(MsgTypeEnum.typeOf(type));
+                    item.setRawType(SEGMENT_NAME.matcher(type).matches() ? type : MsgTypeEnum.unknown.name());
                     item.setData(data);
                     chain.add(item);
                 } else {

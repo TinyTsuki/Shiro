@@ -65,6 +65,19 @@ class MessageConverserTest {
     }
 
     @Test
+    void cqRetainsExtensionNamesWithoutChangingTheirEnumClassification() {
+        for (String type : List.of("file", "custom_segment-2")) {
+            String segment = "[CQ:" + type + ",file_id=abc&#44;123]";
+            ArrayMsg item = MessageConverser.stringToArray(segment).getFirst();
+            assertEquals(type, item.getRawType());
+            assertEquals(MsgTypeEnum.unknown, item.getType());
+            assertEquals("abc,123", item.getStringData("file_id"));
+            assertEquals(segment, item.toCQCode());
+        }
+        assertEquals(MsgTypeEnum.text, MessageConverser.stringToArray("&#91;CQ:file,file_id=abc&#93;").getFirst().getType());
+    }
+
+    @Test
     void arrayMsgToCodeTest() {
         val raw = "[CQ:at,qq=1122334455]";
         val originalResult = rawToArrayMsgOriginal(raw);
