@@ -40,10 +40,12 @@ public class WebSocketProperties {
      */
     private Integer timeout = 10;
 
+    private static final int DEFAULT_UPLOAD_TIMEOUT = 3600;
+
     /**
-     * 文件上传超时，20分钟
+     * 文件上传响应等待上限，单位秒，默认一小时
      */
-    private Integer uploadTimeout = 1200;
+    private Integer uploadTimeout = DEFAULT_UPLOAD_TIMEOUT;
 
     /**
      * 按 OneBot action 配置超时时间，优先级高于内置上传超时
@@ -67,24 +69,17 @@ public class WebSocketProperties {
      * @return 超时时间，单位秒
      */
     public int getTimeout(ActionPath action) {
-        if (action == null) {
-            return normalizedTimeout(timeout);
-        }
-        Integer configured = actionTimeouts == null ? null : actionTimeouts.get(action.getPath());
-        if (configured != null) {
-            return normalizedTimeout(configured);
-        }
-        if (action == ActionPathEnum.UPLOAD_GROUP_FILE || action == ActionPathEnum.UPLOAD_PRIVATE_FILE) {
-            return normalizedTimeout(uploadTimeout);
-        }
-        return normalizedTimeout(timeout);
-    }
-
-    private int normalizedTimeout(Integer value) {
-        if (value != null && value > 0) {
-            return value;
+        Integer configured = action == null || actionTimeouts == null ? null : actionTimeouts.get(action.getPath());
+        if (configured != null && configured > 0) return configured;
+        if (isFileUpload(action)) {
+            return uploadTimeout != null && uploadTimeout > 0 ? uploadTimeout : DEFAULT_UPLOAD_TIMEOUT;
         }
         return timeout != null && timeout > 0 ? timeout : 10;
+    }
+
+    public static boolean isFileUpload(ActionPath action) {
+        return action != null && (ActionPathEnum.UPLOAD_GROUP_FILE.getPath().equals(action.getPath())
+                || ActionPathEnum.UPLOAD_PRIVATE_FILE.getPath().equals(action.getPath()));
     }
 
     /**

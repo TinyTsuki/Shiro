@@ -92,7 +92,7 @@ public class WebSocketClientHandler extends TextWebSocketHandler {
 
     @Override
     public void afterConnectionClosed(@NonNull WebSocketSession session, @NonNull CloseStatus status) {
-        PayloadSender.cleanupSessionLock(session.getId());
+        actionHandler.onSessionClosed(session);
 
         long selfId = ConnectionUtils.parseSelfId(session);
         Bot bot = botContainer.removeSession(selfId, session);

@@ -122,6 +122,15 @@ public class ActionHandler {
         }
     }
 
+    public void onSessionClosed(WebSocketSession session) {
+        callback.forEach((key, sender) -> {
+            if (sender.belongsTo(session) && callback.remove(key, sender)) {
+                sender.onSessionClosed();
+            }
+        });
+        PayloadSender.cleanupSessionLock(session.getId());
+    }
+
     /**
      * 处理带 keyboard 的请求
      *
@@ -171,7 +180,7 @@ public class ActionHandler {
 
         JsonObjectWrapper payload = generatePayload(action, params);
         String e = payload.get("echo").toString();
-        PayloadSender sender = new PayloadSender(session, wsProp.getTimeout(action));
+        PayloadSender sender = new PayloadSender(session, wsProp.getTimeout(action), WebSocketProperties.isFileUpload(action));
         callback.put(e, sender);
         try {
             result = sender.send(payload);

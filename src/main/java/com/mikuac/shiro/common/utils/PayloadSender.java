@@ -22,18 +22,24 @@ public class PayloadSender {
     private final WebSocketSession session;
     private final Lock sessionLock;
     private final int timeout;
+    private final boolean fileUpload;
 
     private final CompletableFuture<JsonObjectWrapper> responseFuture = new CompletableFuture<>();
 
     public PayloadSender(WebSocketSession session, int timeout) {
+        this(session, timeout, false);
+    }
+
+    public PayloadSender(WebSocketSession session, int timeout, boolean fileUpload) {
+        this.fileUpload = fileUpload;
         this.session = session;
         this.timeout = timeout;
         this.sessionLock = SESSION_LOCKS.computeIfAbsent(session.getId(), k -> new ReentrantLock());
     }
 
-    private static JsonObjectWrapper createErrorResp(String message) {
+    private JsonObjectWrapper createErrorResp(String message) {
         JsonObjectWrapper resp = new JsonObjectWrapper();
-        resp.put(Connection.RESULT_STATUS_KEY, Connection.FAILED_STATUS);
+        resp.put(Connection.RESULT_STATUS_KEY, fileUpload ? "unknown" : Connection.FAILED_STATUS);
         resp.put(Connection.RESULT_CODE, -1);
         resp.put(Connection.RESULT_WORDING, message);
         return resp;
@@ -86,6 +92,10 @@ public class PayloadSender {
 
     public void onCallback(JsonObjectWrapper resp) {
         responseFuture.complete(resp);
+    }
+
+    public void onSessionClosed() {
+        responseFuture.complete(createErrorResp("WebSocket closed before response"));
     }
 
     public boolean belongsTo(WebSocketSession source) {
